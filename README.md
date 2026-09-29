@@ -1,0 +1,137 @@
+# trading-engine-core
+
+A clean-room C++20 portfolio implementation of a small event-driven trading system.
+The first vertical slice runs from deterministic market data through strategy, risk,
+orders, simulated execution, and position/PnL accounting. It uses only synthetic data
+and a scripted example strategy; it makes no claims about trading performance.
+
+Proprietary strategies, employer-specific code, broker APIs, credentials, DMA
+protocol details, and production-sensitive components are intentionally excluded.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Replay[CSV / sample replay thread] --> Queue[Bounded thread-safe queue]
+    Queue --> Engine[TradingEngine consumer thread]
+    Engine --> Strategy[IStrategy / ExampleStrategy]
+    Strategy --> Risk[RiskManager]
+    Risk --> Orders[OrderManager]
+    Orders --> Gateway[IExecutionGateway / SimulatedExchange]
+    Gateway --> Fills[Fills]
+    Fills --> Orders
+    Fills --> Positions[PositionManager / PnL]
+    Positions --> Risk
+    Orders --> Risk
+```
+
+Two execution threads: a replay producer and the calling engine thread. Only the
+bounded queue crosses threads; mutable trading state belongs to the consumer.
+For each tick, the engine marks positions, fills existing orders, calls the strategy,
+checks risk, and submits any new order using the remaining quote liquidity.
+Sequence numbers are globally increasing; timestamps are nondecreasing nanoseconds.
+No wall-clock sleeps are used. Output is deterministic.
+
+## Build and run on Ubuntu
+
+Requires CMake 3.24+, GCC 12+ or Clang 16+, and a C++20 standard library.
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential cmake ninja-build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel 2
+ctest --test-dir build --output-on-failure
+./build/trading_demo
+./build/trading_demo data/sample.csv
+```
+
+GoogleTest 1.14+ is used if installed with a CMake package config. Otherwise CMake
+downloads GoogleTest 1.15.2 with a pinned SHA-256 hash. Initial configuration needs
+network access. For offline builds, provide a previously downloaded source tree:
+
+```sh
+cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest
+```
+
+Use `-DBUILD_TESTING=OFF` for a dependency-free library/demo build. Optional Linux
+AddressSanitizer + UndefinedBehaviorSanitizer checks:
+
+```sh
+cmake -S . -B build-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug -DTRADING_ENABLE_SANITIZERS=ON
+cmake --build build-sanitize --parallel 2
+ctest --test-dir build-sanitize --output-on-failure
+```
+
+The Ubuntu GitHub Actions workflow builds with GCC in Release and Clang in Debug
+with sanitizers, then runs GoogleTest, built-in replay, and CSV replay checks.
+
+## Expected demo output
+
+```text
+ticks=4 orders=2 fills=2
+order=1 state=Filled filled=2 average_price=101.00
+order=2 state=Filled filled=2 average_price=104.00
+SYNTH position=0 realized_pnl=6.00 unrealized_pnl=0.00
+```
+
+`ExampleStrategy` buys two units on the first `SYNTH` tick and sells two on the third.
+It is a fixed demonstration script, not a position-aware trading algorithm. Its
+second order is emitted even if the first was rejected or only partially filled.
+
+## Behavior and scope
+
+- **Orders:** `PendingRisk -> Rejected`, or `PendingRisk -> Accepted -> PartiallyFilled
+  -> Filled`. Working orders may become `Cancelled`; immediate full fills skip
+  `PartiallyFilled`. Terminal states reject subsequent transitions and fills.
+- **Risk:** validates requests and quotes, order quantity, order notional, per-symbol
+  worst-case position including remaining working orders, and session realized plus
+  unrealized loss. Buy and sell reservations are checked independently. Limit
+  notional uses the order limit; market notional uses the current executable quote.
+  These are admission checks, not ongoing guarantees after prices change. The loss
+  gate rejects all new orders, including reductions, and does not cancel existing
+  orders or implement liquidation/daily reset.
+- **Execution:** synchronous in-process gateway; buys cross the ask and sells cross
+  the bid. Limits execute only at their limit or better. Each quote supplies fresh
+  per-side liquidity shared across orders. Partial fills carry to later ticks.
+  Market orders also carry residual quantity; they are not IOC. Matching uses
+  ascending order ID, not exchange price/time priority. No queue-position model,
+  latency, fees, or slippage beyond the spread is simulated.
+- **Accounting:** signed integer units, weighted average cost, realized PnL on
+  reductions/closures, and correct cost reset on reversals. Unrealized PnL uses the
+  latest midpoint. Contract multiplier is 1 and prices use `double`; there is no
+  tick rounding, currency conversion, settlement, or derivatives margin model.
+  Supported quantities are bounded to 1e9 units and positive prices to 1e12.
+- **Shutdown:** EOF drains queued ticks, joins the producer, then cancels remaining
+  orders; positions stay open and marked. Producer/consumer exceptions are surfaced
+  after joining and attempting cancellation. The engine is single-use. Accessors
+  are only safe after `run()` returns/throws. Sources must return promptly; a blocked
+  external I/O source needs its own cancellation design.
+- **Integration boundary:** the gateway is trusted to deliver each incremental fill
+  exactly once and to honor the synchronous contract. There are no execution IDs,
+  reconnect recovery, asynchronous acknowledgments, or production reconciliation.
+  Managers are single-threaded and PositionManager must receive validated fills
+  through OrderManager. Invalid integration reports fail the run; there is no
+  transactional rollback of already-applied reports.
+- **CSV:** exact header in `data/sample.csv`, seven unquoted fields, LF or CRLF,
+  finite positive non-crossed quotes and nonnegative sizes. Blank rows, numeric
+  suffixes, malformed headers, and out-of-order records fail fast with diagnostics.
+  The current CSV reader validates and loads the whole file before replay.
+
+## Repository layout
+
+```text
+app/                     Command-line replay demo
+include/trading/         Domain types, interfaces, queue, component headers
+src/                     Engine and component implementations
+tests/                   GoogleTest unit and integration tests
+data/sample.csv          Synthetic deterministic input
+.github/workflows/ci.yml Ubuntu GCC/Clang build and test jobs
+```
+
+Tests cover queue wakeup/drain/backpressure, risk reservations, order transitions,
+partial fills and limit prices, long/short reversals and PnL, strict CSV parsing,
+end-to-end replay, and failure/shutdown paths.
+
+Next increments: execution-report IDs and deduplication, cancel/replace requests,
+streaming CSV input, contract/tick metadata, and replay throughput measurements.
