@@ -170,3 +170,87 @@ TEST(Strategy, OnlyActsOnFirstAndThirdMatchingTicks) {
     EXPECT_EQ(sell->side, Side::Sell);
     EXPECT_FALSE(strategy.on_market_data(ticks[3]));
 }
+
+
+TEST(Trace, PartialFillsAreChronologicalAndPreserveStreamFormatting) {
+    auto ticks = sample_market_data();
+    ticks.front().ask_size = 1;
+    ReplayMarketDataSource source(ticks);
+    std::ostringstream trace;
+    trace.precision(7);
+    const auto flags = trace.flags();
+    TradingEngine engine(std::make_unique<ExampleStrategy>(), std::make_unique<SimulatedExchange>(),
+                         {}, 1, &trace);
+    engine.run(source);
+    const auto output = trace.str();
+    std::size_t cursor = 0;
+    for (const auto* token : {"event=TICK", "state=PendingRisk", "state=Accepted",
+                             "event=FILL order=1 symbol=SYNTH side=Buy quantity=1 price=101.00",
+                             "state=PartiallyFilled", "event=POSITION cause=fill",
+                             "seq=2 timestamp_ns=2000 event=TICK",
+                             "event=FILL order=1 symbol=SYNTH side=Buy quantity=1 price=104.00",
+                             "state=Filled", "average_price=102.50",
+                             "seq=3 timestamp_ns=3000 event=TICK",
+                             "event=FILL order=2 symbol=SYNTH side=Sell quantity=2 price=104.00"}) {
+        const auto found = output.find(token, cursor);
+        ASSERT_NE(found, std::string::npos) << token << '\n' << output;
+        cursor = found + std::string_view(token).size();
+    }
+    EXPECT_DOUBLE_EQ(engine.positions().get("SYNTH").realized_pnl, 3);
+    EXPECT_EQ(trace.precision(), 7);
+    EXPECT_EQ(trace.flags(), flags);
+}
+
+TEST(Trace, EofCancellationRetainsPartialFillAndPosition) {
+    ReplayMarketDataSource source({{1, 1000, "SYNTH", 99, 101, 10, 1}});
+    std::ostringstream trace;
+    TradingEngine engine(std::make_unique<ExampleStrategy>(), std::make_unique<SimulatedExchange>(),
+                         {}, 1, &trace);
+    engine.run(source);
+    const auto output = trace.str();
+    EXPECT_NE(output.find("state=Cancelled quantity=2 filled=1 unfilled=1 average_price=101.00 reason=end_of_replay"),
+              std::string::npos);
+    EXPECT_NE(output.find("event=POSITION cause=fill symbol=SYNTH quantity=1 average_price=101.00 mark_price=100.00 realized_pnl=0.00 unrealized_pnl=-1.00"),
+              std::string::npos);
+    EXPECT_EQ(engine.positions().get("SYNTH").quantity, 1);
+}
+
+TEST(Trace, RejectedOrdersIncludeReasonWithoutFills) {
+    ReplayMarketDataSource source(sample_market_data());
+    std::ostringstream trace;
+    TradingEngine engine(std::make_unique<ExampleStrategy>(), std::make_unique<SimulatedExchange>(),
+                         {10, 20, 100, 1000}, 1, &trace);
+    engine.run(source);
+    const auto output = trace.str();
+    EXPECT_NE(output.find("state=Rejected"), std::string::npos);
+    EXPECT_NE(output.find("reason=\"Order notional limit\""), std::string::npos);
+    EXPECT_EQ(output.find("event=FILL"), std::string::npos);
+    EXPECT_TRUE(engine.fills().empty());
+}
+
+TEST(Trace, ErrorCleanupIsNotLabelledAsEndOfReplay) {
+    ThrowingSource source;
+    std::ostringstream trace;
+    TradingEngine engine(std::make_unique<LimitStrategy>(), std::make_unique<SimulatedExchange>(),
+                         {}, 1, &trace);
+    EXPECT_THROW(engine.run(source), std::runtime_error);
+    EXPECT_NE(trace.str().find("reason=run_error"), std::string::npos);
+    EXPECT_EQ(trace.str().find("reason=end_of_replay"), std::string::npos);
+    EXPECT_EQ(engine.orders().get(1).state, OrderState::Cancelled);
+}
+
+TEST(Trace, FailedOutputDoesNotPreventTradingOrCancellation) {
+    for (const bool throw_on_failure : {false, true}) {
+        ReplayMarketDataSource source({{1, 1000, "SYNTH", 99, 101, 10, 1}});
+        std::ostream trace(nullptr);
+        if (throw_on_failure) {
+            EXPECT_THROW(trace.exceptions(std::ios::badbit), std::ios_base::failure);
+        }
+        TradingEngine engine(std::make_unique<ExampleStrategy>(), std::make_unique<SimulatedExchange>(),
+                             {}, 1, &trace);
+        EXPECT_NO_THROW(engine.run(source));
+        EXPECT_EQ(engine.orders().get(1).state, OrderState::Cancelled);
+        EXPECT_EQ(engine.fills().size(), 1U);
+        EXPECT_EQ(engine.positions().get("SYNTH").quantity, 1);
+    }
+}

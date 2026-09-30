@@ -1,0 +1,4 @@
+interface:
+  display_name: "Save"
+  short_description: "Write a commit message, commit, and push to GitHub"
+  default_prompt: "Use $save to review this repository's changes, choose an English commit message, commit, and push to GitHub."

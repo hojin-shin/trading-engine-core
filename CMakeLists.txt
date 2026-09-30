@@ -60,6 +60,10 @@ if(BUILD_TESTING)
     include(GoogleTest)
     gtest_discover_tests(trading_tests DISCOVERY_TIMEOUT 30 PROPERTIES TIMEOUT 15)
     add_test(NAME demo_builtin COMMAND trading_demo)
+    add_test(NAME demo_trace COMMAND trading_demo --trace)
+    set_tests_properties(demo_trace PROPERTIES
+        PASS_REGULAR_EXPRESSION "event=ORDER order=1 symbol=SYNTH side=Buy type=Market state=Accepted"
+        TIMEOUT 15)
     add_test(NAME demo_csv COMMAND trading_demo ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.csv)
     set_tests_properties(demo_builtin demo_csv PROPERTIES
         PASS_REGULAR_EXPRESSION "SYNTH position=0 realized_pnl=6.00 unrealized_pnl=0.00"

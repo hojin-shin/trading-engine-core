@@ -66,6 +66,33 @@ ctest --test-dir build-sanitize --output-on-failure
 The Ubuntu GitHub Actions workflow builds with GCC in Release and Clang in Debug
 with sanitizers, then runs GoogleTest, built-in replay, and CSV replay checks.
 
+## Commit and push from Windows PowerShell
+
+From the repository root, preview the files to be published:
+
+```powershell
+.\publish.ps1 -Preview
+.\publish.ps1 -Message "feat: add optional replay event tracing"
+```
+
+The script shows changed files and asks for `y` before staging all non-ignored
+changes (including new files and deletions), committing, and pushing the current
+branch to `origin`. Omit `-Message` to enter an English commit message interactively.
+Review the file list first; already staged files and existing unpushed commits are
+also included. Ignored build files are excluded. Run builds/tests before publishing;
+this script does not run them.
+
+On failure the script stops, returns a nonzero exit code, and preserves local work.
+It never force-pushes, pulls, rebases, resets, or stores credentials. Authentication
+uses your existing Git credential setup. If push fails after a successful commit,
+resolve the reported issue and rerun: with no new changes it only retries the push.
+
+If Windows blocks script execution, use a policy override for this invocation only:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\publish.ps1
+```
+
 ## Expected demo output
 
 ```text
@@ -78,6 +105,43 @@ SYNTH position=0 realized_pnl=6.00 unrealized_pnl=0.00
 `ExampleStrategy` buys two units on the first `SYNTH` tick and sells two on the third.
 It is a fixed demonstration script, not a position-aware trading algorithm. Its
 second order is emitted even if the first was rejected or only partially filled.
+
+## Trace replay events
+
+Add `--trace` to see the intermediate steps before the final summary:
+
+```sh
+./build/trading_demo --trace
+./build/trading_demo --trace data/sample.csv
+```
+
+Trace lines include the current tick sequence and timestamp, then `event=TICK`,
+`ORDER`, `FILL`, or `POSITION`. Order snapshots show each state transition, filled
+and unfilled quantities, average fill price, and rejection/cancellation reasons.
+Position snapshots are emitted after midpoint marking and after each fill.
+`unfilled` is requested minus filled quantity; on a cancelled order it is the
+cancelled quantity, not an active working quantity. EOF cancellation uses
+`reason=end_of_replay`; cleanup following an exception uses `reason=run_error`.
+Cancellation does not undo fills or close positions.
+
+For a partial fill followed by cancellation, create a separate CSV with only:
+
+```csv
+sequence,timestamp_ns,symbol,bid,ask,bid_size,ask_size
+1,1000,SYNTH,99,101,10,1
+```
+
+Run it with `./build/trading_demo --trace /path/to/sample-cancel.csv`. Order 1
+transitions through `PendingRisk -> Accepted -> PartiallyFilled -> Cancelled`;
+one unit remains long at 101 with midpoint 100 and unrealized PnL -1.
+Keep `data/sample.csv` unchanged: the CSV smoke test expects its original PnL +6.
+
+Library tracing is opt-in via the final `TradingEngine` constructor parameter,
+an `std::ostream*` that must remain valid through `run()`. Output occurs only on
+the consumer thread; callers must not write to the same stream concurrently.
+Formatting preserves the destination stream settings. Tracing is synchronous
+and can slow replay. Stream failures disable tracing without interrupting order
+processing or cleanup; this diagnostic stream is not a durable audit log.
 
 ## Behavior and scope
 
