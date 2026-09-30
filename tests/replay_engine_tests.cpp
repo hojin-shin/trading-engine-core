@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -253,4 +254,67 @@ TEST(Trace, FailedOutputDoesNotPreventTradingOrCancellation) {
         EXPECT_EQ(engine.fills().size(), 1U);
         EXPECT_EQ(engine.positions().get("SYNTH").quantity, 1);
     }
+}
+
+
+TEST(Strategy, ValidatesBothExampleLimitPrices) {
+    for (const auto invalid : {0.0, -1.0, max_price * 2,
+                               std::numeric_limits<double>::infinity(),
+                               std::numeric_limits<double>::quiet_NaN()}) {
+        EXPECT_THROW((ExampleStrategy{"SYNTH", 2, ExampleLimitPrices{invalid, 104}}),
+                     std::invalid_argument);
+        EXPECT_THROW((ExampleStrategy{"SYNTH", 2, ExampleLimitPrices{100, invalid}}),
+                     std::invalid_argument);
+    }
+}
+
+TEST(Engine, ExampleLimitsWaitForExecutableQuotesOnBothSides) {
+    ReplayMarketDataSource source({{1, 1000, "SYNTH", 99, 101, 10, 10},
+                                   {2, 2000, "SYNTH", 98, 100, 10, 10},
+                                   {3, 3000, "SYNTH", 103, 105, 10, 10},
+                                   {4, 4000, "SYNTH", 104, 106, 10, 10}});
+    TradingEngine engine(std::make_unique<ExampleStrategy>("SYNTH", 2, ExampleLimitPrices{100, 104}),
+                         std::make_unique<SimulatedExchange>());
+    engine.run(source);
+    ASSERT_EQ(engine.fills().size(), 2U);
+    EXPECT_EQ(engine.fills()[0].order_id, 1U);
+    EXPECT_EQ(engine.fills()[0].timestamp_ns, 2000U);
+    EXPECT_DOUBLE_EQ(engine.fills()[0].price, 100);
+    EXPECT_EQ(engine.fills()[1].order_id, 2U);
+    EXPECT_EQ(engine.fills()[1].timestamp_ns, 4000U);
+    EXPECT_DOUBLE_EQ(engine.fills()[1].price, 104);
+    EXPECT_EQ(engine.orders().get(1).request.type, OrderType::Limit);
+    EXPECT_EQ(engine.orders().get(1).request.limit_price, 100);
+    EXPECT_EQ(engine.orders().get(2).request.limit_price, 104);
+    EXPECT_EQ(engine.orders().get(1).state, OrderState::Filled);
+    EXPECT_EQ(engine.orders().get(2).state, OrderState::Filled);
+    EXPECT_EQ(engine.positions().get("SYNTH").quantity, 0);
+    EXPECT_DOUBLE_EQ(engine.positions().get("SYNTH").realized_pnl, 8);
+}
+
+TEST(Engine, ExampleLimitRemainsUnfilledWhenAskNeverReachesLimit) {
+    ReplayMarketDataSource source({{1, 1000, "SYNTH", 99, 101, 10, 10},
+                                   {2, 2000, "SYNTH", 100, 102, 10, 10}});
+    TradingEngine engine(std::make_unique<ExampleStrategy>("SYNTH", 2, ExampleLimitPrices{100, 104}),
+                         std::make_unique<SimulatedExchange>());
+    engine.run(source);
+    EXPECT_TRUE(engine.fills().empty());
+    EXPECT_EQ(engine.orders().get(1).state, OrderState::Cancelled);
+    EXPECT_EQ(engine.orders().get(1).filled_quantity, 0);
+    EXPECT_EQ(engine.positions().get("SYNTH").quantity, 0);
+}
+
+TEST(Engine, ExampleLimitPartialFillReceivesBetterPriceAndCancelsRemainder) {
+    ReplayMarketDataSource source({{1, 1000, "SYNTH", 99, 101, 10, 10},
+                                   {2, 2000, "SYNTH", 98, 99, 10, 1}});
+    TradingEngine engine(std::make_unique<ExampleStrategy>("SYNTH", 2, ExampleLimitPrices{100, 104}),
+                         std::make_unique<SimulatedExchange>());
+    engine.run(source);
+    ASSERT_EQ(engine.fills().size(), 1U);
+    EXPECT_DOUBLE_EQ(engine.fills()[0].price, 99);
+    EXPECT_EQ(engine.fills()[0].quantity, 1);
+    EXPECT_EQ(engine.orders().get(1).state, OrderState::Cancelled);
+    EXPECT_EQ(engine.orders().get(1).filled_quantity, 1);
+    EXPECT_EQ(engine.positions().get("SYNTH").quantity, 1);
+    EXPECT_DOUBLE_EQ(engine.positions().get("SYNTH").unrealized_pnl, -0.5);
 }

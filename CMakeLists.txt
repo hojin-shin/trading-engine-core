@@ -59,6 +59,13 @@ if(BUILD_TESTING)
     target_link_libraries(trading_tests PRIVATE trading_core GTest::gtest_main)
     include(GoogleTest)
     gtest_discover_tests(trading_tests DISCOVERY_TIMEOUT 30 PROPERTIES TIMEOUT 15)
+    add_test(NAME demo_limit COMMAND trading_demo --trace --limit-demo
+        ${CMAKE_CURRENT_SOURCE_DIR}/data/sample_limit.csv)
+    set_tests_properties(demo_limit PROPERTIES
+        PASS_REGULAR_EXPRESSION "SYNTH position=0 realized_pnl=8.00 unrealized_pnl=0.00"
+        TIMEOUT 15)
+    add_test(NAME demo_limit_missing_csv COMMAND trading_demo --limit-demo)
+    set_tests_properties(demo_limit_missing_csv PROPERTIES WILL_FAIL TRUE TIMEOUT 15)
     add_test(NAME demo_builtin COMMAND trading_demo)
     add_test(NAME demo_trace COMMAND trading_demo --trace)
     set_tests_properties(demo_trace PROPERTIES

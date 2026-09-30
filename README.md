@@ -143,6 +143,43 @@ Formatting preserves the destination stream settings. Tracing is synchronous
 and can slow replay. Stream failures disable tracing without interrupting order
 processing or cleanup; this diagnostic stream is not a durable audit log.
 
+## Limit order replay
+
+Use a fixed, synthetic limit-order script with the dedicated CSV:
+
+```sh
+./build/trading_demo --trace --limit-demo data/sample_limit.csv
+```
+
+`--limit-demo` requires an explicit CSV. It changes the example strategy to submit
+a buy of two units at limit 100 on the first matching tick and a sell of two units
+at limit 104 on the third. Both orders can rest until a later executable quote:
+
+| Tick | Bid / ask | Result |
+| --- | --- | --- |
+| 1 | 99 / 101 | Buy limit 100 accepted; ask is too high, so no fill |
+| 2 | 98 / 100 | Resting buy fills two units at ask 100 |
+| 3 | 103 / 105 | Sell limit 104 accepted; bid is too low, so no fill |
+| 4 | 104 / 106 | Resting sell fills two units at bid 104 |
+
+Final output after the trace:
+
+```text
+ticks=4 orders=2 fills=2
+order=1 state=Filled filled=2 average_price=100.00
+order=2 state=Filled filled=2 average_price=104.00
+SYNTH position=0 realized_pnl=8.00 unrealized_pnl=0.00
+```
+
+Buys require `ask <= limit`; sells require `bid >= limit`, with available liquidity.
+Execution uses the current quote, so a better price is possible. Unfilled orders
+remain `Accepted`, or `PartiallyFilled` after a partial fill, until another quote
+allows execution or EOF cancels their remainder.
+
+This is still a scripted example: the third-tick sell is emitted even if the buy
+was not filled, and can open a short position with a different CSV. It is not a
+position-aware exit rule. Default runs without `--limit-demo` retain market orders.
+
 ## Behavior and scope
 
 - **Orders:** `PendingRisk -> Rejected`, or `PendingRisk -> Accepted -> PartiallyFilled
