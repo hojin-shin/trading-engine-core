@@ -47,8 +47,7 @@ about the ambiguous scope. Do not copy code from other repositories.
    suggesting a message or instructing the user to run Git manually.
 3. Stage the reviewed files with explicit paths, including reviewed deletions.
    Check the staged diff matches the intended scope. Commit using ordinary Git
-   commands with proper shell quoting. Do not run the interactive `publish.ps1`:
-   this skill replaces its message and confirmation prompts.
+   commands with proper shell quoting.
 4. Push the current branch to `origin` without force, using an explicit destination
    such as `git push --set-upstream origin HEAD:refs/heads/<current-branch>`.
    A normal push also publishes existing unpushed commits on this branch; inspect

@@ -66,33 +66,6 @@ ctest --test-dir build-sanitize --output-on-failure
 The Ubuntu GitHub Actions workflow builds with GCC in Release and Clang in Debug
 with sanitizers, then runs GoogleTest, built-in replay, and CSV replay checks.
 
-## Commit and push from Windows PowerShell
-
-From the repository root, preview the files to be published:
-
-```powershell
-.\publish.ps1 -Preview
-.\publish.ps1 -Message "feat: add optional replay event tracing"
-```
-
-The script shows changed files and asks for `y` before staging all non-ignored
-changes (including new files and deletions), committing, and pushing the current
-branch to `origin`. Omit `-Message` to enter an English commit message interactively.
-Review the file list first; already staged files and existing unpushed commits are
-also included. Ignored build files are excluded. Run builds/tests before publishing;
-this script does not run them.
-
-On failure the script stops, returns a nonzero exit code, and preserves local work.
-It never force-pushes, pulls, rebases, resets, or stores credentials. Authentication
-uses your existing Git credential setup. If push fails after a successful commit,
-resolve the reported issue and rerun: with no new changes it only retries the push.
-
-If Windows blocks script execution, use a policy override for this invocation only:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\publish.ps1
-```
-
 ## Expected demo output
 
 ```text
