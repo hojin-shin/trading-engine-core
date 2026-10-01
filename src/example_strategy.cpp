@@ -15,7 +15,7 @@ ExampleStrategy::ExampleStrategy(std::string symbol, Quantity quantity,
     }
 }
 
-std::optional<Signal> ExampleStrategy::on_market_data(const MarketData& data) {
+std::optional<StrategyAction> ExampleStrategy::on_market_data(const MarketData& data) {
     if (data.symbol != symbol_ || ticks_ >= 3) { return std::nullopt; }
     ++ticks_;
     if (ticks_ == 1 || ticks_ == 3) {

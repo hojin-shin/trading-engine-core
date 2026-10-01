@@ -1,0 +1,4 @@
+sequence,timestamp_ns,symbol,bid,ask,bid_size,ask_size
+1,1000,SYNTH,99,101,10,10
+2,2000,SYNTH,99,101,10,10
+3,3000,SYNTH,98,100,10,10

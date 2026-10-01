@@ -86,19 +86,53 @@ void TradingEngine::process(const MarketData& data) {
     trace_position(data.symbol, "mark");
     apply_fills(gateway_->on_market_data(data));
     ++processed_ticks_;
-    if (auto signal = strategy_->on_market_data(data)) {
-        const auto id = orders_.create(*signal);
+    if (auto action = strategy_->on_market_data(data)) {
+        if (const auto* cancel = std::get_if<CancelRequest>(&*action)) {
+            process_cancel(*cancel);
+            return;
+        }
+        const auto& signal = std::get<Signal>(*action);
+        const auto id = orders_.create(signal);
         trace_order(orders_.get(id));
-        const auto decision = risk_.check(*signal, data, positions_, orders_);
+        const auto decision = risk_.check(signal, data, positions_, orders_);
         if (!decision.approved) {
             orders_.reject(id, decision.reason);
             trace_order(orders_.get(id));
+            strategy_->on_order_created(orders_.get(id));
             return;
         }
         orders_.accept(id);
         trace_order(orders_.get(id));
         apply_fills(gateway_->submit(orders_.get(id)));
+        strategy_->on_order_created(orders_.get(id));
     }
+}
+
+void TradingEngine::process_cancel(const CancelRequest& request) {
+    write_trace(trace_, last_sequence_, last_timestamp_, [&](auto& out) {
+        out << "event=CANCEL_REQUEST order=" << request.order_id;
+    });
+    CancelResult result{request.order_id, false, {}};
+    const auto found = orders_.orders().find(request.order_id);
+    if (found == orders_.orders().end()) {
+        result.reason = "Unknown order";
+    } else if (!is_working(found->second.state)) {
+        result.reason = "Order is not working";
+    } else if (!gateway_->cancel(request.order_id)) {
+        result.reason = "Gateway declined cancellation";
+    } else {
+        orders_.cancel(request.order_id);
+        result.cancelled = true;
+        result.reason = "strategy_request";
+        trace_order(found->second, result.reason);
+    }
+    cancel_results_.push_back(std::move(result));
+    write_trace(trace_, last_sequence_, last_timestamp_, [&](auto& out) {
+        const auto& saved = cancel_results_.back();
+        out << "event=CANCEL_RESULT order=" << saved.order_id
+            << " result=" << (saved.cancelled ? "Cancelled" : "Rejected")
+            << " reason=" << std::quoted(saved.reason);
+    });
 }
 
 void TradingEngine::apply_fills(const std::vector<Fill>& fills) {

@@ -28,7 +28,8 @@ flowchart LR
 Two execution threads: a replay producer and the calling engine thread. Only the
 bounded queue crosses threads; mutable trading state belongs to the consumer.
 For each tick, the engine marks positions, fills existing orders, calls the strategy,
-checks risk, and submits any new order using the remaining quote liquidity.
+checks risk, and submits any new order using the remaining quote liquidity, or
+processes a strategy cancellation request. Matching precedes the strategy action.
 Sequence numbers are globally increasing; timestamps are nondecreasing nanoseconds.
 No wall-clock sleeps are used. Output is deterministic.
 
@@ -152,6 +153,52 @@ allows execution or EOF cancels their remainder.
 This is still a scripted example: the third-tick sell is emitted even if the buy
 was not filled, and can open a short position with a different CSV. It is not a
 position-aware exit rule. Default runs without `--limit-demo` retain market orders.
+
+## Cancel during replay
+
+Submit a buy limit of two units at 100 on matching tick 1, then request its
+cancellation on matching tick 2. This script sends no sell order:
+
+```sh
+./build/trading_demo --trace --cancel-demo data/sample_cancel.csv
+./build/trading_demo --trace --cancel-demo data/sample_cancel_partial.csv
+```
+
+The first CSV keeps ask at 101 through tick 2; the order is cancelled before ask
+falls to 100 on tick 3. Final state: `Cancelled`, zero fills, zero position/PnL.
+The second CSV supplies only one unit at ask 100 on tick 1, then ask 101 on tick 2.
+Only the remaining unit is cancelled. Tick 3 cannot fill it: position remains +1
+at average 100, realized PnL 0, and unrealized PnL -1 at midpoint 99.
+
+Look for `event=CANCEL_REQUEST`, `state=Cancelled ... reason=strategy_request`,
+and `event=CANCEL_RESULT ... result=Cancelled`. A failed cancellation returns
+`result=Rejected` without changing the order state. Unknown IDs, terminal orders,
+and gateway declines are reported separately. A later valid request can still run.
+
+Existing orders match each tick **before** the strategy can request cancellation.
+If that tick fills the whole order, cancellation is rejected; if it fills only
+part, the remaining quantity can be cancelled. A successful cancellation releases
+working-order risk reservations but leaves filled positions intact. Cancellation
+does not pass through new-order risk checks, so a loss-limit breach does not block it.
+The gateway must acknowledge cancellation before OrderManager marks it cancelled.
+Gateway exceptions stop the run and trigger existing error cleanup.
+
+### Strategy interface
+
+`IStrategy::on_market_data` now returns `std::optional<StrategyAction>`, where
+`StrategyAction` is `std::variant<Signal, CancelRequest>`. Return at most one new
+order or cancellation per tick, or `std::nullopt`. Existing custom strategies need
+to update their return type; their `return Signal{...}` statements still work.
+The optional `on_order_created(const Order&)` notification provides the actual
+engine-assigned ID after initial risk/submission/fill processing, including risk
+rejections. Copy fields needed for later cancellation; it is not a live view or
+a notification for every later fill. The demo uses this ID, not a hard-coded ID.
+Like other strategy callbacks, notification exceptions stop the run and trigger
+cleanup. `cancel_results()` is available after `run()` for strategy-request results;
+automatic EOF/error cleanup continues to use order logs and is not counted there.
+
+`--cancel-demo` requires a CSV and cannot be combined with `--limit-demo`.
+This remains synchronous simulation, without exchange latency or cancel/replace.
 
 ## Behavior and scope
 

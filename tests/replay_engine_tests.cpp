@@ -15,7 +15,7 @@ constexpr auto header = "sequence,timestamp_ns,symbol,bid,ask,bid_size,ask_size\
 
 class LimitStrategy final : public IStrategy {
 public:
-    std::optional<Signal> on_market_data(const MarketData& data) override {
+    std::optional<StrategyAction> on_market_data(const MarketData& data) override {
         if (data.sequence > 2) { return std::nullopt; }
         return Signal{data.symbol, Side::Buy, 4, OrderType::Limit, 100};
     }
@@ -23,7 +23,7 @@ public:
 
 class ThrowingStrategy final : public IStrategy {
 public:
-    std::optional<Signal> on_market_data(const MarketData&) override {
+    std::optional<StrategyAction> on_market_data(const MarketData&) override {
         throw std::runtime_error("Strategy failed");
     }
 };
@@ -168,7 +168,7 @@ TEST(Strategy, OnlyActsOnFirstAndThirdMatchingTicks) {
     EXPECT_FALSE(strategy.on_market_data(ticks[1]));
     const auto sell = strategy.on_market_data(ticks[2]);
     ASSERT_TRUE(sell);
-    EXPECT_EQ(sell->side, Side::Sell);
+    EXPECT_EQ(std::get<Signal>(*sell).side, Side::Sell);
     EXPECT_FALSE(strategy.on_market_data(ticks[3]));
 }
 

@@ -46,6 +46,17 @@ struct Order {
     [[nodiscard]] Quantity remaining() const { return request.quantity - filled_quantity; }
 };
 
+struct CancelRequest {
+    OrderId order_id{};
+};
+
+// Cancellation rejection does not change the target order's state.
+struct CancelResult {
+    OrderId order_id{};
+    bool cancelled{};
+    std::string reason;
+};
+
 struct Fill {
     OrderId order_id{};
     std::string symbol;
