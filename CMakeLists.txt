@@ -27,6 +27,7 @@ add_library(trading_core
     src/replay_market_data_source.cpp
     src/example_strategy.cpp
     src/cancel_example_strategy.cpp
+    src/replace_example_strategy.cpp
     src/risk_manager.cpp
     src/order_manager.cpp
     src/simulated_exchange.cpp
@@ -57,10 +58,26 @@ if(BUILD_TESTING)
         tests/risk_order_tests.cpp
         tests/exchange_position_tests.cpp
         tests/replay_engine_tests.cpp
-        tests/cancel_engine_tests.cpp)
+        tests/cancel_engine_tests.cpp
+        tests/replace_engine_tests.cpp)
     target_link_libraries(trading_tests PRIVATE trading_core GTest::gtest_main)
     include(GoogleTest)
     gtest_discover_tests(trading_tests DISCOVERY_TIMEOUT 30 PROPERTIES TIMEOUT 15)
+    add_test(NAME demo_replace COMMAND trading_demo --trace --replace-demo
+        ${CMAKE_CURRENT_SOURCE_DIR}/data/sample_replace.csv)
+    set_tests_properties(demo_replace PROPERTIES
+        PASS_REGULAR_EXPRESSION "SYNTH position=2 realized_pnl=0.00 unrealized_pnl=-2.00" TIMEOUT 15)
+    add_test(NAME demo_replace_partial COMMAND trading_demo --trace --replace-demo
+        ${CMAKE_CURRENT_SOURCE_DIR}/data/sample_replace_partial.csv)
+    set_tests_properties(demo_replace_partial PROPERTIES
+        PASS_REGULAR_EXPRESSION "SYNTH position=2 realized_pnl=0.00 unrealized_pnl=-1.00" TIMEOUT 15)
+    add_test(NAME demo_replace_missing_csv COMMAND trading_demo --replace-demo)
+    add_test(NAME demo_replace_cancel_conflict COMMAND trading_demo --replace-demo --cancel-demo
+        ${CMAKE_CURRENT_SOURCE_DIR}/data/sample_replace.csv)
+    add_test(NAME demo_replace_limit_conflict COMMAND trading_demo --replace-demo --limit-demo
+        ${CMAKE_CURRENT_SOURCE_DIR}/data/sample_replace.csv)
+    set_tests_properties(demo_replace_missing_csv demo_replace_cancel_conflict demo_replace_limit_conflict
+        PROPERTIES WILL_FAIL TRUE TIMEOUT 15)
     add_test(NAME demo_cancel COMMAND trading_demo --trace --cancel-demo
         ${CMAKE_CURRENT_SOURCE_DIR}/data/sample_cancel.csv)
     set_tests_properties(demo_cancel PROPERTIES

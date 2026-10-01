@@ -8,7 +8,7 @@
 
 namespace trading {
 
-using StrategyAction = std::variant<Signal, CancelRequest>;
+using StrategyAction = std::variant<Signal, CancelRequest, ReplaceRequest>;
 
 class IStrategy {
 public:
@@ -51,6 +51,23 @@ private:
     std::string symbol_;
     Quantity quantity_;
     double limit_price_;
+    unsigned int ticks_{};
+    std::optional<OrderId> order_id_;
+};
+
+// Submit a buy limit on matching tick 1; replace its remaining quantity on tick 2.
+class ReplaceExampleStrategy final : public IStrategy {
+public:
+    explicit ReplaceExampleStrategy(std::string symbol = "SYNTH", Quantity quantity = 2,
+                                    double initial_price = 100.0, double replacement_price = 101.0);
+    std::optional<StrategyAction> on_market_data(const MarketData& data) override;
+    void on_order_created(const Order& order) override;
+
+private:
+    std::string symbol_;
+    Quantity quantity_;
+    double initial_price_;
+    double replacement_price_;
     unsigned int ticks_{};
     std::optional<OrderId> order_id_;
 };

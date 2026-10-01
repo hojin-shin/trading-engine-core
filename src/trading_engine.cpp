@@ -91,21 +91,76 @@ void TradingEngine::process(const MarketData& data) {
             process_cancel(*cancel);
             return;
         }
-        const auto& signal = std::get<Signal>(*action);
-        const auto id = orders_.create(signal);
-        trace_order(orders_.get(id));
-        const auto decision = risk_.check(signal, data, positions_, orders_);
-        if (!decision.approved) {
-            orders_.reject(id, decision.reason);
-            trace_order(orders_.get(id));
-            strategy_->on_order_created(orders_.get(id));
+        if (const auto* replace = std::get_if<ReplaceRequest>(&*action)) {
+            process_replace(*replace, data);
             return;
         }
+        submit_signal(std::get<Signal>(*action), data);
+    }
+}
+
+OrderId TradingEngine::submit_signal(const Signal& signal, const MarketData& data) {
+    const auto id = orders_.create(signal);
+    trace_order(orders_.get(id));
+    const auto decision = risk_.check(signal, data, positions_, orders_);
+    if (!decision.approved) {
+        orders_.reject(id, decision.reason);
+        trace_order(orders_.get(id));
+    } else {
         orders_.accept(id);
         trace_order(orders_.get(id));
         apply_fills(gateway_->submit(orders_.get(id)));
-        strategy_->on_order_created(orders_.get(id));
     }
+    strategy_->on_order_created(orders_.get(id));
+    return id;
+}
+
+void TradingEngine::process_replace(const ReplaceRequest& request, const MarketData& data) {
+    write_trace(trace_, last_sequence_, last_timestamp_, [&](auto& out) {
+        out << "event=REPLACE_REQUEST order=" << request.order_id << " limit_price=" << request.limit_price;
+    });
+    ReplaceResult result{request.order_id, false, std::nullopt, false, {}};
+    const auto found = orders_.orders().find(request.order_id);
+    if (found == orders_.orders().end()) {
+        result.reason = "Unknown order";
+    } else if (!is_working(found->second.state)) {
+        result.reason = "Order is not working";
+    } else if (found->second.request.type != OrderType::Limit) {
+        result.reason = "Replacement requires a limit order";
+    } else if (!valid_price(request.limit_price)) {
+        result.reason = "Invalid replacement price";
+    } else if (found->second.request.symbol != data.symbol) {
+        result.reason = "No matching current quote";
+    } else {
+        // Matching has already processed this tick. Preserve filled history and
+        // prepare only the current remainder before asking the gateway to cancel.
+        auto replacement = found->second.request;
+        replacement.quantity = found->second.remaining();
+        replacement.limit_price = request.limit_price;
+        if (!gateway_->cancel(request.order_id)) {
+            result.reason = "Gateway declined cancellation";
+        } else {
+            orders_.cancel(request.order_id);
+            result.original_cancelled = true;
+            trace_order(found->second, "replace_request");
+            // The old reservation is now released. New admission can still fail;
+            // never revive the original order if it does.
+            const auto id = submit_signal(replacement, data);
+            result.replacement_order_id = id;
+            const auto& order = orders_.get(id);
+            result.replaced = order.state != OrderState::Rejected;
+            result.reason = result.replaced ? "replacement_submitted" : order.rejection_reason;
+        }
+    }
+    replace_results_.push_back(std::move(result));
+    write_trace(trace_, last_sequence_, last_timestamp_, [&](auto& out) {
+        const auto& saved = replace_results_.back();
+        out << "event=REPLACE_RESULT order=" << saved.order_id
+            << " original_cancelled=" << (saved.original_cancelled ? "true" : "false");
+        if (saved.replacement_order_id) { out << " replacement_order=" << *saved.replacement_order_id; }
+        out << " result=" << (saved.replaced ? "Replaced" : "Rejected")
+            << " reason=" << std::quoted(saved.reason);
+    });
 }
 
 void TradingEngine::process_cancel(const CancelRequest& request) {

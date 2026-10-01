@@ -27,11 +27,14 @@ public:
     [[nodiscard]] const PositionManager& positions() const { return positions_; }
     [[nodiscard]] const std::vector<Fill>& fills() const { return fills_; }
     [[nodiscard]] const std::vector<CancelResult>& cancel_results() const { return cancel_results_; }
+    [[nodiscard]] const std::vector<ReplaceResult>& replace_results() const { return replace_results_; }
     [[nodiscard]] std::size_t processed_ticks() const { return processed_ticks_; }
 
 private:
     void process(const MarketData& data);
     void process_cancel(const CancelRequest& request);
+    void process_replace(const ReplaceRequest& request, const MarketData& data);
+    OrderId submit_signal(const Signal& signal, const MarketData& data);
     void apply_fills(const std::vector<Fill>& fills);
     void cancel_working_orders(std::string_view reason);
     void trace_order(const Order& order, std::string_view reason = {}) noexcept;
@@ -45,6 +48,7 @@ private:
     ThreadSafeQueue<MarketData> queue_;
     std::vector<Fill> fills_;
     std::vector<CancelResult> cancel_results_;
+    std::vector<ReplaceResult> replace_results_;
     std::size_t processed_ticks_{};
     std::uint64_t last_sequence_{};
     Timestamp last_timestamp_{};

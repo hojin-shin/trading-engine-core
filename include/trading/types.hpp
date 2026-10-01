@@ -57,6 +57,21 @@ struct CancelResult {
     std::string reason;
 };
 
+// Price-only cancel/new of the current remaining quantity of a working limit order.
+struct ReplaceRequest {
+    OrderId order_id{};
+    double limit_price{};
+};
+
+// Cancellation and new-order admission are separate outcomes, not an atomic amend.
+struct ReplaceResult {
+    OrderId order_id{};
+    bool original_cancelled{};
+    std::optional<OrderId> replacement_order_id;
+    bool replaced{};
+    std::string reason;
+};
+
 struct Fill {
     OrderId order_id{};
     std::string symbol;

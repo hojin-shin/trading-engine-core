@@ -29,7 +29,7 @@ Two execution threads: a replay producer and the calling engine thread. Only the
 bounded queue crosses threads; mutable trading state belongs to the consumer.
 For each tick, the engine marks positions, fills existing orders, calls the strategy,
 checks risk, and submits any new order using the remaining quote liquidity, or
-processes a strategy cancellation request. Matching precedes the strategy action.
+processes a strategy cancellation or price replacement request. Matching precedes the strategy action.
 Sequence numbers are globally increasing; timestamps are nondecreasing nanoseconds.
 No wall-clock sleeps are used. Output is deterministic.
 
@@ -186,8 +186,8 @@ Gateway exceptions stop the run and trigger existing error cleanup.
 ### Strategy interface
 
 `IStrategy::on_market_data` now returns `std::optional<StrategyAction>`, where
-`StrategyAction` is `std::variant<Signal, CancelRequest>`. Return at most one new
-order or cancellation per tick, or `std::nullopt`. Existing custom strategies need
+`StrategyAction` is `std::variant<Signal, CancelRequest, ReplaceRequest>`. Return at most
+one new order, cancellation, or replacement per tick, or `std::nullopt`. Existing custom strategies need
 to update their return type; their `return Signal{...}` statements still work.
 The optional `on_order_created(const Order&)` notification provides the actual
 engine-assigned ID after initial risk/submission/fill processing, including risk
@@ -197,8 +197,51 @@ Like other strategy callbacks, notification exceptions stop the run and trigger
 cleanup. `cancel_results()` is available after `run()` for strategy-request results;
 automatic EOF/error cleanup continues to use order logs and is not counted there.
 
-`--cancel-demo` requires a CSV and cannot be combined with `--limit-demo`.
-This remains synchronous simulation, without exchange latency or cancel/replace.
+Each demo mode requires a CSV and cannot be combined with another demo mode.
+This remains synchronous simulation without exchange latency.
+
+## Replace a limit price during replay
+
+```sh
+./build/trading_demo --trace --replace-demo data/sample_replace.csv
+./build/trading_demo --trace --replace-demo data/sample_replace_partial.csv
+```
+
+`ReplaceExampleStrategy` submits a buy limit of two at 100 on matching tick 1 and
+requests a new limit of 101 on tick 2 using the actual original order ID.
+The first CSV leaves the original unfilled: order 1 becomes `Cancelled`, then
+order 2 fills two at 101. Final position is +2, average 101, realized PnL 0,
+unrealized PnL -2 at midpoint 100.
+The second CSV fills one at 100 before replacement. Only the remaining unit is
+submitted as order 2 and fills at 101: total position +2, average 100.50,
+realized PnL 0, unrealized PnL -1. Tick 3 produces no extra fills in either case.
+
+Look for `REPLACE_REQUEST`, old `ORDER ... state=Cancelled reason=replace_request`,
+new `ORDER ... state=PendingRisk`, and `REPLACE_RESULT`. The result links
+`order` and `replacement_order`, reports `original_cancelled`, and distinguishes
+`Replaced` (new order admitted, possibly immediately filled) from `Rejected`.
+The final summary uses the same fields; `replace_results()` exposes these results
+after the run. Internal replacement cancellations do not enter `cancel_results()`.
+
+This is **cancel followed by a new order**, not an atomic exchange amendment:
+
+- Only price changes for working limit orders are supported. Symbol and side stay
+  unchanged, and quantity is the remaining amount after this tick's matching.
+- Unknown/terminal orders, invalid prices, non-limit orders, and requests on a tick
+  for another symbol are rejected before cancellation. A gateway decline leaves
+  the original working and creates no replacement order.
+- After cancellation is acknowledged, the old reservation is released and the new
+  order passes all normal risk checks. A risk rejection leaves the old order
+  cancelled and records a new `Rejected` order; the original is never restored.
+- Same-tick fills happen first. Full fills prevent replacement; partial fills
+  reduce the replacement quantity. Quote liquidity is shared, never reset for
+  the new order. A new ID gives the replacement a new matching priority.
+- `on_order_created` also reports the replacement, including risk rejections.
+  Gateway/callback exceptions stop the run and trigger cleanup; no completed
+  replacement result is fabricated when an exception interrupts processing.
+
+No quantity amendments, asynchronous cancel acknowledgments, or exchange-native
+amend protocol are modeled.
 
 ## Behavior and scope
 
@@ -254,5 +297,5 @@ Tests cover queue wakeup/drain/backpressure, risk reservations, order transition
 partial fills and limit prices, long/short reversals and PnL, strict CSV parsing,
 end-to-end replay, and failure/shutdown paths.
 
-Next increments: execution-report IDs and deduplication, cancel/replace requests,
+Next increments: execution-report IDs and deduplication,
 streaming CSV input, contract/tick metadata, and replay throughput measurements.

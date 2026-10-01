@@ -13,10 +13,11 @@
 
 int main(int argc, char* argv[]) {
     try {
-        constexpr auto usage = "Usage: trading_demo [--trace] [--limit-demo | --cancel-demo] [replay.csv]";
+        constexpr auto usage = "Usage: trading_demo [--trace] [--limit-demo | --cancel-demo | --replace-demo] [replay.csv]";
         bool trace = false;
         bool limit_demo = false;
         bool cancel_demo = false;
+        bool replace_demo = false;
         const char* replay_path = nullptr;
         for (int i = 1; i < argc; ++i) {
             const std::string_view argument(argv[i]);
@@ -26,12 +27,16 @@ int main(int argc, char* argv[]) {
                 limit_demo = true;
             } else if (argument == "--cancel-demo" && !cancel_demo) {
                 cancel_demo = true;
+            } else if (argument == "--replace-demo" && !replace_demo) {
+                replace_demo = true;
             } else if (argument == "--help") {
                 std::cout << usage << '\n'
                           << "--limit-demo requires a CSV: buy 2 at limit 100 on tick 1, "
                              "sell 2 at limit 104 on tick 3.\n"
                           << "--cancel-demo requires a CSV: buy 2 at limit 100 on tick 1, "
-                             "request cancellation on tick 2.\n";
+                             "request cancellation on tick 2.\n"
+                          << "--replace-demo requires a CSV: buy 2 at limit 100 on tick 1, "
+                             "replace the remainder at limit 101 on tick 2.\n";
                 return 0;
             } else if (!argument.empty() && !argument.starts_with('-') && !replay_path) {
                 replay_path = argv[i];
@@ -39,8 +44,11 @@ int main(int argc, char* argv[]) {
                 throw std::invalid_argument(usage);
             }
         }
-        if (limit_demo && cancel_demo) {
-            throw std::invalid_argument("Choose either --limit-demo or --cancel-demo");
+        if (static_cast<int>(limit_demo) + static_cast<int>(cancel_demo) + static_cast<int>(replace_demo) > 1) {
+            throw std::invalid_argument("Choose one demo mode");
+        }
+        if (replace_demo && !replay_path) {
+            throw std::invalid_argument("--replace-demo requires a replay CSV, e.g. data/sample_replace.csv");
         }
         if (cancel_demo && !replay_path) {
             throw std::invalid_argument("--cancel-demo requires a replay CSV, e.g. data/sample_cancel.csv");
@@ -57,7 +65,9 @@ int main(int argc, char* argv[]) {
         const auto limits = limit_demo
             ? std::optional<trading::ExampleLimitPrices>{{100.0, 104.0}} : std::nullopt;
         std::unique_ptr<trading::IStrategy> strategy;
-        if (cancel_demo) {
+        if (replace_demo) {
+            strategy = std::make_unique<trading::ReplaceExampleStrategy>();
+        } else if (cancel_demo) {
             strategy = std::make_unique<trading::CancelExampleStrategy>();
         } else {
             strategy = std::make_unique<trading::ExampleStrategy>("SYNTH", 2, limits);
@@ -77,6 +87,13 @@ int main(int argc, char* argv[]) {
         for (const auto& result : engine.cancel_results()) {
             std::cout << "cancel=" << result.order_id
                       << " result=" << (result.cancelled ? "Cancelled" : "Rejected")
+                      << " reason=" << std::quoted(result.reason) << '\n';
+        }
+        for (const auto& result : engine.replace_results()) {
+            std::cout << "replace=" << result.order_id
+                      << " original_cancelled=" << (result.original_cancelled ? "true" : "false");
+            if (result.replacement_order_id) { std::cout << " replacement_order=" << *result.replacement_order_id; }
+            std::cout << " result=" << (result.replaced ? "Replaced" : "Rejected")
                       << " reason=" << std::quoted(result.reason) << '\n';
         }
         for (const auto& [symbol, position] : engine.positions().positions()) {
