@@ -81,12 +81,12 @@ TEST(Exchange, OtherSymbolsDoNotFillOrRefreshLiquidity) {
 
 TEST(Positions, WeightedAveragePartialCloseAndMarkToMarket) {
     PositionManager positions;
-    positions.apply_fill({1, "SYNTH", Side::Buy, 2, 100, 1});
-    positions.apply_fill({2, "SYNTH", Side::Buy, 2, 110, 2});
+    positions.apply_fill({1, "SYNTH", Side::Buy, 2, 100, 1, 1});
+    positions.apply_fill({2, "SYNTH", Side::Buy, 2, 110, 2, 2});
     positions.mark({1, 3, "SYNTH", 107, 109, 10, 10});
     EXPECT_DOUBLE_EQ(positions.get("SYNTH").average_price, 105);
     EXPECT_DOUBLE_EQ(positions.get("SYNTH").unrealized_pnl, 12);
-    positions.apply_fill({3, "SYNTH", Side::Sell, 1, 115, 4});
+    positions.apply_fill({3, "SYNTH", Side::Sell, 1, 115, 4, 3});
     EXPECT_EQ(positions.get("SYNTH").quantity, 3);
     EXPECT_DOUBLE_EQ(positions.get("SYNTH").realized_pnl, 10);
     EXPECT_DOUBLE_EQ(positions.get("SYNTH").unrealized_pnl, 9);
@@ -95,15 +95,15 @@ TEST(Positions, WeightedAveragePartialCloseAndMarkToMarket) {
 
 TEST(Positions, ReversesLongToShortThenCloses) {
     PositionManager positions;
-    positions.apply_fill({1, "SYNTH", Side::Buy, 2, 100, 1});
-    positions.apply_fill({2, "SYNTH", Side::Sell, 5, 110, 2});
+    positions.apply_fill({1, "SYNTH", Side::Buy, 2, 100, 1, 4});
+    positions.apply_fill({2, "SYNTH", Side::Sell, 5, 110, 2, 5});
     positions.mark({1, 3, "SYNTH", 104, 106, 10, 10});
     const auto short_position = positions.get("SYNTH");
     EXPECT_EQ(short_position.quantity, -3);
     EXPECT_DOUBLE_EQ(short_position.average_price, 110);
     EXPECT_DOUBLE_EQ(short_position.realized_pnl, 20);
     EXPECT_DOUBLE_EQ(short_position.unrealized_pnl, 15);
-    positions.apply_fill({3, "SYNTH", Side::Buy, 3, 105, 4});
+    positions.apply_fill({3, "SYNTH", Side::Buy, 3, 105, 4, 6});
     EXPECT_EQ(positions.get("SYNTH").quantity, 0);
     EXPECT_DOUBLE_EQ(positions.get("SYNTH").average_price, 0);
     EXPECT_DOUBLE_EQ(positions.total_pnl(), 35);
@@ -111,10 +111,10 @@ TEST(Positions, ReversesLongToShortThenCloses) {
 
 TEST(Positions, ReversesShortToLongAndSeparatesSymbols) {
     PositionManager positions;
-    positions.apply_fill({1, "SYNTH", Side::Sell, 2, 110, 1});
-    positions.apply_fill({2, "SYNTH", Side::Buy, 3, 100, 2});
+    positions.apply_fill({1, "SYNTH", Side::Sell, 2, 110, 1, 7});
+    positions.apply_fill({2, "SYNTH", Side::Buy, 3, 100, 2, 8});
     positions.mark({1, 3, "SYNTH", 101, 103, 10, 10});
-    positions.apply_fill({3, "OTHER", Side::Sell, 1, 50, 4});
+    positions.apply_fill({3, "OTHER", Side::Sell, 1, 50, 4, 9});
     positions.mark({2, 5, "OTHER", 54, 56, 10, 10});
     EXPECT_EQ(positions.get("SYNTH").quantity, 1);
     EXPECT_DOUBLE_EQ(positions.get("SYNTH").average_price, 100);
@@ -126,8 +126,8 @@ TEST(Positions, ReversesShortToLongAndSeparatesSymbols) {
 
 TEST(Positions, RejectsInvalidOrExcessiveFillsWithoutMutation) {
     PositionManager positions;
-    EXPECT_THROW(positions.apply_fill(Fill{1, "SYNTH", Side::Buy, 0, 100, 1}), std::invalid_argument);
-    positions.apply_fill({1, "SYNTH", Side::Buy, max_quantity, 100, 1});
-    EXPECT_THROW(positions.apply_fill(Fill{2, "SYNTH", Side::Buy, 1, 100, 2}), std::overflow_error);
+    EXPECT_THROW(positions.apply_fill(Fill{1, "SYNTH", Side::Buy, 0, 100, 1, 10}), std::invalid_argument);
+    positions.apply_fill({1, "SYNTH", Side::Buy, max_quantity, 100, 1, 11});
+    EXPECT_THROW(positions.apply_fill(Fill{2, "SYNTH", Side::Buy, 1, 100, 2, 12}), std::overflow_error);
     EXPECT_EQ(positions.get("SYNTH").quantity, max_quantity);
 }

@@ -271,9 +271,12 @@ amend protocol are modeled.
   after joining and attempting cancellation. The engine is single-use. Accessors
   are only safe after `run()` returns/throws. Sources must return promptly; a blocked
   external I/O source needs its own cancellation design.
-- **Integration boundary:** the gateway is trusted to deliver each incremental fill
-  exactly once and to honor the synchronous contract. There are no execution IDs,
-  reconnect recovery, asynchronous acknowledgments, or production reconciliation.
+- **Integration boundary:** the gateway supplies incremental fills with nonzero
+  execution IDs unique across one gateway/engine run. OrderManager ignores exact
+  retransmissions before checking order state, including after fill or cancellation.
+  Reusing an ID with any changed field fails the run. Only new validated fills reach
+  position/PnL accounting and the fill history. There is no reconnect recovery,
+  asynchronous acknowledgment, or production reconciliation.
   Managers are single-threaded and PositionManager must receive validated fills
   through OrderManager. Invalid integration reports fail the run; there is no
   transactional rollback of already-applied reports.
@@ -297,5 +300,25 @@ Tests cover queue wakeup/drain/backpressure, risk reservations, order transition
 partial fills and limit prices, long/short reversals and PnL, strict CSV parsing,
 end-to-end replay, and failure/shutdown paths.
 
-Next increments: execution-report IDs and deduplication,
-streaming CSV input, contract/tick metadata, and replay throughput measurements.
+## Execution IDs and duplicate reports
+
+`Fill::execution_id` is a required nonzero `ExecutionId` (`uint64_t`). The simulated
+exchange assigns deterministic increasing IDs across orders and partial fills;
+replacement orders do not reset the counter. Custom gateways and fill fixtures must
+provide IDs explicitly. An identical report with a new ID is a separate execution.
+
+`OrderManager::apply_fill` returns true for a new validated execution and false for
+an exact retransmission. Callers must forward only true results to PositionManager,
+which does not deduplicate independently. Identity comparison includes order, symbol,
+side, incremental quantity, price, and execution timestamp. Prices compare exactly,
+without tolerance. Invalid or conflicting reports throw without changing that order
+or recording that report's ID. Previously accepted reports remain applied.
+
+Trace `FILL` lines include `execution_id`; ignored reports emit `FILL_DUPLICATE` and
+do not emit another fill/position update or increase the final fill count.
+The in-memory ID history lasts for one engine run and grows with unique executions.
+Persistence, restart recovery, multiple venues, trade corrections/busts, and delayed
+new fills after synchronous cancellation are outside this increment's scope.
+
+Next increments: streaming CSV input, contract/tick metadata, and replay throughput
+measurements.

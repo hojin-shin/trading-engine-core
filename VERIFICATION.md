@@ -1,38 +1,36 @@
 # Verification
 
-Verified on 2026-09-29.
+Verified on 2026-10-21 (Asia/Seoul), based on commit 024ce38 plus the execution ID increment.
 
 | Check | Result |
 | --- | --- |
-| CMake Debug configure and build | Passed |
-| Compiler | GCC 15.2.0, x86_64 Windows, w64devkit 2.5.0 |
-| Build system | CMake 3.31.8, MinGW Makefiles |
-| GoogleTest | 1.15.2, source archive verified against the hash in CMakeLists.txt |
-| GoogleTest cases | 37 passed |
-| CTest demo smoke checks | 2 passed |
-| Overall CTest | 39/39 passed, 0 failed |
-| Built-in input and CSV replay | Both produced 2 filled orders and realized PnL 6.00 |
-| Missing replay file | Reported an error and returned exit code 1 |
-| Final project build diagnostics | No compiler warnings after fixing a discarded nodiscard result in a test |
-| Native Linux / Ubuntu run | Not run: the host has no installed WSL/Linux environment |
-| ASan / UBSan | Not run locally; configured in the Ubuntu Clang CI job |
-| Remote GitHub Actions | Not run; repository has not been published |
+| Platform | Ubuntu 24.04 under WSL |
+| Compiler | GCC 13.3.0 |
+| CMake | 3.28.3 |
+| Build | Debug, existing out-of-tree build at ~/build/trading-engine-core |
+| GoogleTest cases | 85 passed, including 8 new execution ID tests |
+| CTest demo checks | 14 passed |
+| Overall CTest | 99/99 passed, 0 failed |
+| Build diagnostics | No compiler warnings emitted |
+| Whitespace validation | git diff --check passed |
+| ASan / UBSan | Not run for this increment |
+| Remote GitHub Actions | Not run for this increment |
 
-The local build used the official portable
-[w64devkit release](https://github.com/skeeto/w64devkit/releases/tag/v2.5.0) and
-[CMake release](https://github.com/Kitware/CMake/releases/tag/v3.31.8).
-Both downloads matched their published SHA-256 digests. Tools were extracted
-outside this repository and are excluded from the source archive.
+The new tests exercise identical retransmissions within a batch and across ticks,
+partial and full fills, retransmissions after cancellation, cancel/replace,
+all six conflicting payload fields, zero IDs, invalid reports not consuming IDs,
+deterministic simulator IDs, distinct IDs with identical economics, unique fill
+counts, position/PnL accounting, and stopping on conflicting retransmissions.
+Only synthetic data and clean-room simulator components are used.
 
-Local artifacts are in `build/`: `trading_demo.exe`, `trading_tests.exe`,
-`test-results.xml`, and `Testing/Temporary/LastTest.log`. They are ignored by Git
-and excluded from the source archive. This report records a Windows GCC run;
-it does not assert a completed Ubuntu or sanitizer run. Follow the README to
-reproduce on Ubuntu or push to GitHub to execute the included CI workflow.
+Reproduce from Ubuntu:
 
-Suggested initial commits, after staging the corresponding files:
+```sh
+cmake -S /mnt/c/tmp/signaltrue_home/dev/Globalquant_trading/trading-engine-core -B ~/build/trading-engine-core
+cmake --build ~/build/trading-engine-core --parallel 2
+ctest --test-dir ~/build/trading-engine-core --output-on-failure
+```
 
-1. `feat: implement deterministic trading engine vertical slice`
-2. `test: cover risk execution pnl replay and queue shutdown`
-3. `ci: add Ubuntu builds and sanitizer checks`
-4. `docs: document architecture build steps and verification`
+Deduplication is in memory for one engine run. PositionManager relies on the
+OrderManager result; it does not deduplicate independently. Restart recovery,
+trade corrections/busts, and multi-venue execution identity remain out of scope.

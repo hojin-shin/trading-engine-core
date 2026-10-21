@@ -26,6 +26,7 @@ private:
     std::set<OrderId> seen_ids_;
     std::uint64_t last_sequence_{};
     Timestamp last_timestamp_{};
+    ExecutionId next_execution_id_{1};
 };
 
 } // namespace trading

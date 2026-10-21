@@ -13,11 +13,13 @@ public:
     void accept(OrderId id);
     void reject(OrderId id, std::string reason);
     void cancel(OrderId id);
-    void apply_fill(const Fill& fill);
+    // True for a newly applied fill; false for an identical retransmission.
+    bool apply_fill(const Fill& fill);
     [[nodiscard]] const Order& get(OrderId id) const;
     [[nodiscard]] const std::map<OrderId, Order>& orders() const { return orders_; }
 
 private:
+    std::map<ExecutionId, Fill> executions_;
     OrderId next_id_{1};
     std::map<OrderId, Order> orders_;
 };

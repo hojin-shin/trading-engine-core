@@ -1,6 +1,7 @@
 #include "trading/simulated_exchange.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 namespace trading {
@@ -42,7 +43,12 @@ std::vector<Fill> SimulatedExchange::match(const std::string& symbol) {
             (buy ? price <= *order.request.limit_price : price >= *order.request.limit_price);
         if (executable && available > 0) {
             const auto quantity = std::min(order.remaining(), available);
-            fills.push_back({order.id, symbol, order.request.side, quantity, price, quote.data.timestamp_ns});
+            if (next_execution_id_ == std::numeric_limits<ExecutionId>::max()) {
+                throw std::overflow_error("Execution identifiers exhausted");
+            }
+            fills.push_back({order.id, symbol, order.request.side, quantity, price,
+                             quote.data.timestamp_ns, next_execution_id_});
+            ++next_execution_id_;
             available -= quantity;
             order.filled_quantity += quantity;
         }

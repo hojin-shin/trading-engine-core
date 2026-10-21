@@ -59,7 +59,8 @@ if(BUILD_TESTING)
         tests/exchange_position_tests.cpp
         tests/replay_engine_tests.cpp
         tests/cancel_engine_tests.cpp
-        tests/replace_engine_tests.cpp)
+        tests/replace_engine_tests.cpp
+        tests/execution_id_tests.cpp)
     target_link_libraries(trading_tests PRIVATE trading_core GTest::gtest_main)
     include(GoogleTest)
     gtest_discover_tests(trading_tests DISCOVERY_TIMEOUT 30 PROPERTIES TIMEOUT 15)

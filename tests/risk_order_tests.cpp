@@ -68,7 +68,7 @@ TEST(Risk, CountsFilledPositionAndOnlyUnfilledRemainder) {
     OrderManager orders;
     const auto id = orders.create(request(Side::Buy, 4));
     orders.accept(id);
-    const Fill fill{id, "SYNTH", Side::Buy, 2, 100, 1000};
+    const Fill fill{id, "SYNTH", Side::Buy, 2, 100, 1000, 1};
     orders.apply_fill(fill);
     positions.apply_fill(fill);
     EXPECT_TRUE(risk.check(request(Side::Buy, 1), quote, positions, orders).approved);
@@ -84,7 +84,7 @@ TEST(Risk, UsesLimitPriceForLimitNotional) {
 
 TEST(Risk, StopsAtSessionLossIncludingUnrealizedPnl) {
     PositionManager positions;
-    positions.apply_fill({1, "SYNTH", Side::Buy, 2, 110, 1000});
+    positions.apply_fill({1, "SYNTH", Side::Buy, 2, 110, 1000, 2});
     positions.mark(quote);
     EXPECT_DOUBLE_EQ(positions.total_pnl(), -20);
     EXPECT_FALSE(RiskManager({10, 20, 10000, 20}).check(request(), quote, positions, {}).approved);
@@ -103,25 +103,25 @@ TEST(Orders, TracksPartialThenFullFillAndAveragePrice) {
     const auto id = orders.create(request(Side::Buy, 3));
     EXPECT_EQ(orders.get(id).state, OrderState::PendingRisk);
     orders.accept(id);
-    orders.apply_fill({id, "SYNTH", Side::Buy, 1, 100, 1000});
+    orders.apply_fill({id, "SYNTH", Side::Buy, 1, 100, 1000, 3});
     EXPECT_EQ(orders.get(id).state, OrderState::PartiallyFilled);
     EXPECT_EQ(orders.get(id).remaining(), 2);
-    orders.apply_fill({id, "SYNTH", Side::Buy, 2, 103, 2000});
+    orders.apply_fill({id, "SYNTH", Side::Buy, 2, 103, 2000, 4});
     EXPECT_EQ(orders.get(id).state, OrderState::Filled);
     EXPECT_DOUBLE_EQ(orders.get(id).average_fill_price, 102);
     EXPECT_THROW(orders.cancel(id), std::logic_error);
-    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 1, 100, 3000}), std::logic_error);
+    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 1, 100, 3000, 5}), std::logic_error);
 }
 
 TEST(Orders, RejectsInvalidFillsWithoutMutatingOrder) {
     OrderManager orders;
     const auto id = orders.create(request());
-    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 1, 100, 1}), std::logic_error);
+    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 1, 100, 1, 6}), std::logic_error);
     orders.accept(id);
-    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 3, 100, 1}), std::logic_error);
-    EXPECT_THROW(orders.apply_fill(Fill{id, "OTHER", Side::Buy, 1, 100, 1}), std::logic_error);
-    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Sell, 1, 100, 1}), std::logic_error);
-    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 0, 100, 1}), std::invalid_argument);
+    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 3, 100, 1, 7}), std::logic_error);
+    EXPECT_THROW(orders.apply_fill(Fill{id, "OTHER", Side::Buy, 1, 100, 1, 8}), std::logic_error);
+    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Sell, 1, 100, 1, 9}), std::logic_error);
+    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 0, 100, 1, 10}), std::invalid_argument);
     EXPECT_EQ(orders.get(id).filled_quantity, 0);
     EXPECT_EQ(orders.get(id).state, OrderState::Accepted);
 }
@@ -130,8 +130,8 @@ TEST(Orders, EnforcesLimitAndTerminalTransitions) {
     OrderManager orders;
     const auto id = orders.create({"SYNTH", Side::Buy, 2, OrderType::Limit, 100});
     orders.accept(id);
-    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 1, 101, 1}), std::logic_error);
-    orders.apply_fill({id, "SYNTH", Side::Buy, 1, 99, 1});
+    EXPECT_THROW(orders.apply_fill(Fill{id, "SYNTH", Side::Buy, 1, 101, 1, 11}), std::logic_error);
+    orders.apply_fill({id, "SYNTH", Side::Buy, 1, 99, 1, 12});
     orders.cancel(id);
     EXPECT_EQ(orders.get(id).filled_quantity, 1);
     EXPECT_THROW(orders.accept(id), std::logic_error);

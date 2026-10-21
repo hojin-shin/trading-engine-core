@@ -37,8 +37,14 @@ void OrderManager::cancel(OrderId id) {
     order.state = OrderState::Cancelled;
 }
 
-void OrderManager::apply_fill(const Fill& fill) {
+bool OrderManager::apply_fill(const Fill& fill) {
     validate_fill(fill);
+    if (const auto seen = executions_.find(fill.execution_id); seen != executions_.end()) {
+        if (seen->second != fill) {
+            throw std::logic_error("Conflicting report for execution ID");
+        }
+        return false;
+    }
     auto& order = orders_.at(fill.order_id);
     if (!is_working(order.state) || fill.symbol != order.request.symbol ||
         fill.side != order.request.side || fill.quantity > order.remaining() ||
@@ -47,12 +53,15 @@ void OrderManager::apply_fill(const Fill& fill) {
           (fill.side == Side::Sell && fill.price < *order.request.limit_price)))) {
         throw std::logic_error("Fill does not match a working order");
     }
+    // Allocate the deduplication record before changing the order.
+    executions_.emplace(fill.execution_id, fill);
     const auto total = order.filled_quantity + fill.quantity;
     order.average_fill_price =
         (order.average_fill_price * static_cast<double>(order.filled_quantity) +
          fill.price * static_cast<double>(fill.quantity)) / static_cast<double>(total);
     order.filled_quantity = total;
     order.state = order.remaining() == 0 ? OrderState::Filled : OrderState::PartiallyFilled;
+    return true;
 }
 
 const Order& OrderManager::get(OrderId id) const { return orders_.at(id); }

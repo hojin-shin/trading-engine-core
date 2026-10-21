@@ -192,14 +192,21 @@ void TradingEngine::process_cancel(const CancelRequest& request) {
 
 void TradingEngine::apply_fills(const std::vector<Fill>& fills) {
     for (const auto& fill : fills) {
-        orders_.apply_fill(fill);
+        if (!orders_.apply_fill(fill)) {
+            write_trace(trace_, last_sequence_, last_timestamp_, [&](auto& out) {
+                out << "event=FILL_DUPLICATE order=" << fill.order_id
+                    << " execution_id=" << fill.execution_id;
+            });
+            continue;
+        }
         positions_.apply_fill(fill);
         fills_.push_back(fill);
         write_trace(trace_, last_sequence_, last_timestamp_, [&](auto& out) {
             out << "event=FILL order=" << fill.order_id << " symbol=" << fill.symbol
                 << " side=" << (fill.side == Side::Buy ? "Buy" : "Sell")
                 << " quantity=" << fill.quantity << " price=" << fill.price
-                << " fill_timestamp_ns=" << fill.timestamp_ns;
+                << " fill_timestamp_ns=" << fill.timestamp_ns
+                << " execution_id=" << fill.execution_id;
         });
         trace_order(orders_.get(fill.order_id));
         trace_position(fill.symbol, "fill");

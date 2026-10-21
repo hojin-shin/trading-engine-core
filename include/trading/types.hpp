@@ -9,6 +9,7 @@ namespace trading {
 
 using Quantity = std::int64_t;
 using OrderId = std::uint64_t;
+using ExecutionId = std::uint64_t;
 using Timestamp = std::uint64_t;
 inline constexpr Quantity max_quantity = 1'000'000'000;
 inline constexpr double max_price = 1'000'000'000'000.0;
@@ -79,6 +80,8 @@ struct Fill {
     Quantity quantity{};
     double price{};
     Timestamp timestamp_ns{};
+    ExecutionId execution_id{}; // Nonzero, unique within one gateway/engine run.
+    bool operator==(const Fill&) const = default;
 };
 
 struct Position {

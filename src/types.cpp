@@ -47,7 +47,7 @@ void validate_signal(const Signal& signal) {
 }
 
 void validate_fill(const Fill& fill) {
-    if (fill.order_id == 0 || fill.symbol.empty() || !valid_side(fill.side) ||
+    if (fill.execution_id == 0 || fill.order_id == 0 || fill.symbol.empty() || !valid_side(fill.side) ||
         fill.quantity <= 0 || fill.quantity > max_quantity || !valid_price(fill.price)) {
         throw std::invalid_argument("Invalid fill");
     }

@@ -7,6 +7,8 @@
 namespace trading {
 
 // Synchronous simulation contract: submit accepts or throws; reports are incremental fills.
+// Each execution has a nonzero ID unique across this gateway instance's run.
+// Retransmissions must preserve the ID and every Fill field; conflicting reuse is an error.
 class IExecutionGateway {
 public:
     virtual ~IExecutionGateway() = default;
