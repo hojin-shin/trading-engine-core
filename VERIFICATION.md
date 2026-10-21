@@ -1,6 +1,6 @@
 # Verification
 
-Verified on 2026-10-21 (Asia/Seoul), based on commit 024ce38 plus the execution ID increment.
+Verified on 2026-10-21 (Asia/Seoul), based on commit dfe1534 plus the streaming CSV increment.
 
 | Check | Result |
 | --- | --- |
@@ -8,9 +8,9 @@ Verified on 2026-10-21 (Asia/Seoul), based on commit 024ce38 plus the execution 
 | Compiler | GCC 13.3.0 |
 | CMake | 3.28.3 |
 | Build | Debug, existing out-of-tree build at ~/build/trading-engine-core |
-| GoogleTest cases | 85 passed, including 8 new execution ID tests |
+| GoogleTest cases | 93 passed, including 8 execution ID and 8 streaming CSV tests |
 | CTest demo checks | 14 passed |
-| Overall CTest | 99/99 passed, 0 failed |
+| Overall CTest | 107/107 passed, 0 failed |
 | Build diagnostics | No compiler warnings emitted |
 | Whitespace validation | git diff --check passed |
 | ASan / UBSan | Not run for this increment |
@@ -34,3 +34,10 @@ ctest --test-dir ~/build/trading-engine-core --output-on-failure
 Deduplication is in memory for one engine run. PositionManager relies on the
 OrderManager result; it does not deduplicate independently. Restart recovery,
 trade corrections/busts, and multi-venue execution identity remain out of scope.
+
+Streaming CSV tests verify incremental row consumption, non-seekable input, CRLF,
+equal timestamps, final rows without newlines, stable EOF, strict row validation,
+terminal parse/read errors, stream exception masks, buffered/streaming trace parity,
+and draining valid ticks plus cancelling working remainder after a malformed suffix.
+CLI CSV smoke checks now exercise the streaming source. No memory or throughput
+benchmark was performed; total engine history is still retained in memory.

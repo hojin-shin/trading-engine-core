@@ -85,7 +85,7 @@ TEST(Replay, ReportsFailingLineNumber) {
 TEST(Replay, RejectsIoFailureAndInvalidVector) {
     std::istringstream input(header);
     input.setstate(std::ios::badbit);
-    EXPECT_THROW(ReplayMarketDataSource::from_csv(input), std::invalid_argument);
+    EXPECT_THROW(ReplayMarketDataSource::from_csv(input), std::runtime_error);
     auto data = sample_market_data();
     data[1].sequence = 1;
     EXPECT_THROW(ReplayMarketDataSource source(data), std::invalid_argument);

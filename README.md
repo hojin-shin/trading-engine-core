@@ -283,7 +283,9 @@ amend protocol are modeled.
 - **CSV:** exact header in `data/sample.csv`, seven unquoted fields, LF or CRLF,
   finite positive non-crossed quotes and nonnegative sizes. Blank rows, numeric
   suffixes, malformed headers, and out-of-order records fail fast with diagnostics.
-  The current CSV reader validates and loads the whole file before replay.
+  CLI CSV replay validates the header up front and rows incrementally on the producer
+  thread. A later malformed row stops input; already queued valid ticks drain before
+  run_error cleanup cancels working orders. Prior fills/PnL remain applied.
 
 ## Repository layout
 
@@ -320,5 +322,25 @@ The in-memory ID history lasts for one engine run and grows with unique executio
 Persistence, restart recovery, multiple venues, trade corrections/busts, and delayed
 new fills after synchronous cancellation are outside this increment's scope.
 
-Next increments: streaming CSV input, contract/tick metadata, and replay throughput
-measurements.
+## Streaming CSV input
+
+The CLI uses `CsvReplayMarketDataSource`: construction reads only the header, and
+each `next()` reads and validates one row. It keeps no tick history and supports
+non-seekable streams, CRLF, equal timestamps, and a final row without a newline.
+Input memory scales with the current row and bounded replay queue rather than file
+length. This is not a bound on total engine memory: orders, fills, and execution ID
+history still grow, and individual row length is not capped.
+
+The source borrows an `std::istream`; it must stay alive until `run()` returns or
+throws. Do not access it concurrently. EOF remains EOF; parse/read failures make the
+source terminal, so subsequent calls throw instead of skipping invalid rows. Header
+errors occur during construction; row errors include their physical CSV line number.
+I/O failures throw runtime_error, including streams with exception masks enabled.
+
+For callers needing up-front validation, `ReplayMarketDataSource::from_csv` remains
+available and intentionally buffers the entire file using the same parser. The
+vector-based source and default synthetic replay are unchanged. Streaming validates
+as it runs, so a malformed suffix can be discovered after valid rows caused trades;
+this is a simulator, and neither input failure nor cleanup rolls those trades back.
+
+Next increments: contract/tick metadata and replay throughput measurements.

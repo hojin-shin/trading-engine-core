@@ -56,11 +56,15 @@ int main(int argc, char* argv[]) {
         if (limit_demo && !replay_path) {
             throw std::invalid_argument("--limit-demo requires a replay CSV, e.g. data/sample_limit.csv");
         }
-        auto source = trading::ReplayMarketDataSource(trading::sample_market_data());
+        // Keep the file alive until run() has joined the replay producer.
+        std::ifstream input;
+        std::unique_ptr<trading::IMarketDataSource> source;
         if (replay_path) {
-            std::ifstream input(replay_path);
+            input.open(replay_path);
             if (!input) { throw std::runtime_error("Cannot open replay file"); }
-            source = trading::ReplayMarketDataSource::from_csv(input);
+            source = std::make_unique<trading::CsvReplayMarketDataSource>(input);
+        } else {
+            source = std::make_unique<trading::ReplayMarketDataSource>(trading::sample_market_data());
         }
         const auto limits = limit_demo
             ? std::optional<trading::ExampleLimitPrices>{{100.0, 104.0}} : std::nullopt;
@@ -75,7 +79,7 @@ int main(int argc, char* argv[]) {
         trading::TradingEngine engine(std::move(strategy),
                                      std::make_unique<trading::SimulatedExchange>(),
                                      trading::RiskLimits{}, 256, trace ? &std::cout : nullptr);
-        engine.run(source);
+        engine.run(*source);
         std::cout << "ticks=" << engine.processed_ticks() << " orders=" << engine.orders().orders().size()
                   << " fills=" << engine.fills().size() << '\n' << std::fixed << std::setprecision(2);
         for (const auto& [id, order] : engine.orders().orders()) {

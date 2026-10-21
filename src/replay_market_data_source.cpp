@@ -51,17 +51,38 @@ ReplayMarketDataSource::ReplayMarketDataSource(std::vector<MarketData> data)
     }
 }
 
-ReplayMarketDataSource ReplayMarketDataSource::from_csv(std::istream& input) {
+namespace {
+bool read_csv_line(std::istream& input, std::string& line) {
+    try {
+        if (std::getline(input, line)) { return true; }
+    } catch (const std::ios_base::failure&) {
+        // Exception masks must not turn ordinary EOF into an I/O failure.
+        if (!input.eof() || input.bad()) { throw std::runtime_error("Failed to read CSV input"); }
+        return !line.empty(); // A final row need not end with a newline.
+    }
+    if (input.bad() || (input.fail() && !input.eof())) {
+        throw std::runtime_error("Failed to read CSV input");
+    }
+    return false;
+}
+} // namespace
+
+CsvReplayMarketDataSource::CsvReplayMarketDataSource(std::istream& input) : input_(input) {
     std::string line;
-    if (!std::getline(input, line)) { throw std::invalid_argument("Missing CSV header"); }
+    if (!read_csv_line(input_, line)) { throw std::invalid_argument("Missing CSV header"); }
     strip_cr(line);
     if (line != "sequence,timestamp_ns,symbol,bid,ask,bid_size,ask_size") {
         throw std::invalid_argument("Unexpected CSV header");
     }
-    std::vector<MarketData> data;
-    std::size_t line_number = 1;
-    while (std::getline(input, line)) {
-        ++line_number;
+}
+
+std::optional<MarketData> CsvReplayMarketDataSource::next() {
+    if (failed_) { throw std::logic_error("CSV source cannot resume after failure"); }
+    if (eof_) { return std::nullopt; }
+    try {
+        std::string line;
+        if (!read_csv_line(input_, line)) { eof_ = true; return std::nullopt; }
+        ++line_number_;
         strip_cr(line);
         try {
             const auto fields = split(line);
@@ -71,18 +92,25 @@ ReplayMarketDataSource ReplayMarketDataSource::from_csv(std::istream& input) {
                             parse_number<double>(fields[3]), parse_number<double>(fields[4]),
                             parse_number<Quantity>(fields[5]), parse_number<Quantity>(fields[6])};
             validate_market_data(tick);
-            if (!data.empty() && (tick.sequence <= data.back().sequence ||
-                                  tick.timestamp_ns < data.back().timestamp_ns)) {
+            if (tick.sequence <= last_sequence_ || tick.timestamp_ns < last_timestamp_) {
                 throw std::invalid_argument("Out-of-order replay record");
             }
-            data.push_back(std::move(tick));
+            last_sequence_ = tick.sequence;
+            last_timestamp_ = tick.timestamp_ns;
+            return tick;
         } catch (const std::invalid_argument& error) {
-            throw std::invalid_argument("CSV line " + std::to_string(line_number) + ": " + error.what());
+            throw std::invalid_argument("CSV line " + std::to_string(line_number_) + ": " + error.what());
         }
+    } catch (...) {
+        failed_ = true;
+        throw;
     }
-    if (input.bad() || (input.fail() && !input.eof())) {
-        throw std::runtime_error("Failed to read CSV input");
-    }
+}
+
+ReplayMarketDataSource ReplayMarketDataSource::from_csv(std::istream& input) {
+    CsvReplayMarketDataSource source(input);
+    std::vector<MarketData> data;
+    while (auto tick = source.next()) { data.push_back(std::move(*tick)); }
     return ReplayMarketDataSource(std::move(data));
 }
 
