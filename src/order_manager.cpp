@@ -6,6 +6,8 @@
 
 namespace trading {
 
+OrderManager::OrderManager(InstrumentCatalog instruments) : instruments_(std::move(instruments)) {}
+
 OrderId OrderManager::create(Signal request) {
     if (next_id_ == std::numeric_limits<OrderId>::max()) {
         throw std::overflow_error("Order identifiers exhausted");
@@ -18,7 +20,7 @@ OrderId OrderManager::create(Signal request) {
 void OrderManager::accept(OrderId id) {
     auto& order = orders_.at(id);
     if (order.state != OrderState::PendingRisk) { throw std::logic_error("Order is not pending risk"); }
-    validate_signal(order.request);
+    instruments_.validate_order(order.request);
     order.state = OrderState::Accepted;
 }
 
@@ -45,6 +47,7 @@ bool OrderManager::apply_fill(const Fill& fill) {
         }
         return false;
     }
+    instruments_.validate_execution(fill);
     auto& order = orders_.at(fill.order_id);
     if (!is_working(order.state) || fill.symbol != order.request.symbol ||
         fill.side != order.request.side || fill.quantity > order.remaining() ||

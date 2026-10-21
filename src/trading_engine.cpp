@@ -34,9 +34,10 @@ void write_trace(std::ostream*& destination, std::uint64_t sequence,
 
 TradingEngine::TradingEngine(std::unique_ptr<IStrategy> strategy,
                              std::unique_ptr<IExecutionGateway> gateway,
-                             RiskLimits limits, std::size_t queue_capacity, std::ostream* trace)
+                             RiskLimits limits, std::size_t queue_capacity, std::ostream* trace,
+                             InstrumentCatalog instruments)
     : strategy_(std::move(strategy)), gateway_(std::move(gateway)), risk_(limits),
-      queue_(queue_capacity), trace_(trace) {
+      orders_(instruments), positions_(std::move(instruments)), queue_(queue_capacity), trace_(trace) {
     if (!strategy_ || !gateway_) { throw std::invalid_argument("Engine dependencies must not be null"); }
 }
 
@@ -129,6 +130,13 @@ void TradingEngine::process_replace(const ReplaceRequest& request, const MarketD
         result.reason = "Replacement requires a limit order";
     } else if (!valid_price(request.limit_price)) {
         result.reason = "Invalid replacement price";
+    } else if (const auto validation = [&]() -> std::string {
+                   try {
+                       positions_.instruments().validate_price(found->second.request.symbol, request.limit_price);
+                       return {};
+                   } catch (const std::invalid_argument& error) { return error.what(); }
+               }(); !validation.empty()) {
+        result.reason = validation;
     } else if (found->second.request.symbol != data.symbol) {
         result.reason = "No matching current quote";
     } else {

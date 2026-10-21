@@ -263,8 +263,9 @@ amend protocol are modeled.
   latency, fees, or slippage beyond the spread is simulated.
 - **Accounting:** signed integer units, weighted average cost, realized PnL on
   reductions/closures, and correct cost reset on reversals. Unrealized PnL uses the
-  latest midpoint. Contract multiplier is 1 and prices use `double`; there is no
-  tick rounding, currency conversion, settlement, or derivatives margin model.
+  latest midpoint. Per-symbol contract multipliers scale realized/unrealized PnL
+  and order notional; quantities remain contract counts. Prices use `double`;
+  no tick rounding, currency conversion, settlement, or derivatives margin is modeled.
   Supported quantities are bounded to 1e9 units and positive prices to 1e12.
 - **Shutdown:** EOF drains queued ticks, joins the producer, then cancels remaining
   orders; positions stay open and marked. Producer/consumer exceptions are surfaced
@@ -343,4 +344,43 @@ vector-based source and default synthetic replay are unchanged. Streaming valida
 as it runs, so a malformed suffix can be discovered after valid rows caused trades;
 this is a simulator, and neither input failure nor cleanup rolls those trades back.
 
-Next increments: contract/tick metadata and replay throughput measurements.
+## Instrument metadata
+
+`InstrumentCatalog` holds immutable per-symbol `tick_size` and `contract_multiplier`.
+The default contains only synthetic SYNTH and OTHER, both tick 0.01 and multiplier 1.
+Unknown symbols, duplicate definitions, empty symbols, and nonpositive/nonfinite
+metadata fail explicitly. Metadata values are bounded to 1e12. Custom library callers
+pass a catalog as the final TradingEngine argument; managers own immutable copies.
+RiskManager uses the PositionManager catalog as its source of contract metadata.
+Standalone managers must be configured consistently with one another.
+
+Limit prices, quote bid/ask, and execution prices must lie on the symbol's tick grid.
+No rounding is performed. Invalid new orders are risk-rejected; invalid replacement
+prices are rejected before cancelling the original. Invalid quotes or execution
+reports stop the run and trigger existing cleanup. The simulator matches the engine's
+validated orders/quotes; it has no independent catalog. CSV readers retain generic
+format validation; instrument validation occurs at the engine/manager boundary.
+Midpoints and weighted average costs may fall between ticks and are not rounded.
+
+Tick checks allow floating-point representation error (8 machine epsilons times the
+tick count), with at most 1e12 ticks per price. This is a constant positive-price grid,
+not variable tick ladders or an integer/fixed-point price implementation.
+
+PnL = price difference * contracts * contract_multiplier. Order notional = limit
+price (or executable quote for market orders) * contracts * contract_multiplier.
+This is a synthetic linear-contract convention, not options delta exposure or margin.
+All symbols share one accounting unit; no currency conversion or fees are included.
+
+Run the multiplier example using the original synthetic CSV:
+
+```sh
+./build/trading_demo --trace --contract-demo data/sample.csv
+```
+
+This selects SYNTH tick 0.25 and multiplier 10, prints its metadata, buys two at 101,
+and sells two at 104: final realized PnL is 60.00. Without --contract-demo the same CSV
+still produces 6.00. The flag may also be combined with one existing order demo mode.
+Only synthetic specifications are used; no real exchange/broker data is included.
+
+Next increment: replay throughput measurements. See WORK_STATUS.md for the current
+handoff and verification instructions.

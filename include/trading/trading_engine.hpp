@@ -18,7 +18,7 @@ class TradingEngine {
 public:
     TradingEngine(std::unique_ptr<IStrategy> strategy, std::unique_ptr<IExecutionGateway> gateway,
                   RiskLimits limits = {}, std::size_t queue_capacity = 256,
-                  std::ostream* trace = nullptr);
+                  std::ostream* trace = nullptr, InstrumentCatalog instruments = {});
     // Optional trace is synchronous and best-effort. The stream must outlive run().
     // Only the consumer writes to it; do not access the stream concurrently.
     // One run per engine. Accessors are for use after run() returns or throws.

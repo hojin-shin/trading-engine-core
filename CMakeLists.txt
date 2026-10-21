@@ -24,6 +24,7 @@ endif()
 
 add_library(trading_core
     src/types.cpp
+    src/instrument_catalog.cpp
     src/replay_market_data_source.cpp
     src/example_strategy.cpp
     src/cancel_example_strategy.cpp
@@ -61,7 +62,8 @@ if(BUILD_TESTING)
         tests/cancel_engine_tests.cpp
         tests/replace_engine_tests.cpp
         tests/execution_id_tests.cpp
-        tests/streaming_replay_tests.cpp)
+        tests/streaming_replay_tests.cpp
+        tests/instrument_tests.cpp)
     target_link_libraries(trading_tests PRIVATE trading_core GTest::gtest_main)
     include(GoogleTest)
     gtest_discover_tests(trading_tests DISCOVERY_TIMEOUT 30 PROPERTIES TIMEOUT 15)
@@ -101,6 +103,10 @@ if(BUILD_TESTING)
         TIMEOUT 15)
     add_test(NAME demo_limit_missing_csv COMMAND trading_demo --limit-demo)
     set_tests_properties(demo_limit_missing_csv PROPERTIES WILL_FAIL TRUE TIMEOUT 15)
+    add_test(NAME demo_contract COMMAND trading_demo --contract-demo
+        ${CMAKE_CURRENT_SOURCE_DIR}/data/sample.csv)
+    set_tests_properties(demo_contract PROPERTIES
+        PASS_REGULAR_EXPRESSION "SYNTH position=0 realized_pnl=60.00 unrealized_pnl=0.00" TIMEOUT 15)
     add_test(NAME demo_builtin COMMAND trading_demo)
     add_test(NAME demo_trace COMMAND trading_demo --trace)
     set_tests_properties(demo_trace PROPERTIES

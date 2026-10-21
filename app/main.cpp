@@ -13,8 +13,9 @@
 
 int main(int argc, char* argv[]) {
     try {
-        constexpr auto usage = "Usage: trading_demo [--trace] [--limit-demo | --cancel-demo | --replace-demo] [replay.csv]";
+        constexpr auto usage = "Usage: trading_demo [--trace] [--contract-demo] [--limit-demo | --cancel-demo | --replace-demo] [replay.csv]";
         bool trace = false;
+        bool contract_demo = false;
         bool limit_demo = false;
         bool cancel_demo = false;
         bool replace_demo = false;
@@ -23,6 +24,8 @@ int main(int argc, char* argv[]) {
             const std::string_view argument(argv[i]);
             if (argument == "--trace" && !trace) {
                 trace = true;
+            } else if (argument == "--contract-demo" && !contract_demo) {
+                contract_demo = true;
             } else if (argument == "--limit-demo" && !limit_demo) {
                 limit_demo = true;
             } else if (argument == "--cancel-demo" && !cancel_demo) {
@@ -31,6 +34,7 @@ int main(int argc, char* argv[]) {
                 replace_demo = true;
             } else if (argument == "--help") {
                 std::cout << usage << '\n'
+                          << "--contract-demo uses synthetic SYNTH tick 0.25 and multiplier 10.\n"
                           << "--limit-demo requires a CSV: buy 2 at limit 100 on tick 1, "
                              "sell 2 at limit 104 on tick 3.\n"
                           << "--cancel-demo requires a CSV: buy 2 at limit 100 on tick 1, "
@@ -76,9 +80,15 @@ int main(int argc, char* argv[]) {
         } else {
             strategy = std::make_unique<trading::ExampleStrategy>("SYNTH", 2, limits);
         }
+        auto instruments = contract_demo
+            ? trading::InstrumentCatalog(std::vector<trading::Instrument>{{"SYNTH", 0.25, 10}, {"OTHER", 0.01, 1}})
+            : trading::InstrumentCatalog{};
+        if (contract_demo) {
+            std::cout << "instrument=SYNTH tick_size=0.25 contract_multiplier=10.00\n";
+        }
         trading::TradingEngine engine(std::move(strategy),
                                      std::make_unique<trading::SimulatedExchange>(),
-                                     trading::RiskLimits{}, 256, trace ? &std::cout : nullptr);
+                                     trading::RiskLimits{}, 256, trace ? &std::cout : nullptr, std::move(instruments));
         engine.run(*source);
         std::cout << "ticks=" << engine.processed_ticks() << " orders=" << engine.orders().orders().size()
                   << " fills=" << engine.fills().size() << '\n' << std::fixed << std::setprecision(2);

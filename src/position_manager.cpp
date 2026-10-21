@@ -3,27 +3,31 @@
 #include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
+#include <utility>
 
 namespace trading {
 namespace {
 
-void revalue(Position& position) {
+void revalue(Position& position, double multiplier) {
     position.unrealized_pnl = static_cast<double>(position.quantity) *
-                              (position.mark_price - position.average_price);
+                              (position.mark_price - position.average_price) * multiplier;
 }
 
 } // namespace
 
+PositionManager::PositionManager(InstrumentCatalog instruments) : instruments_(std::move(instruments)) {}
+
 void PositionManager::mark(const MarketData& data) {
-    validate_market_data(data);
+    instruments_.validate_quote(data);
     auto& position = positions_[data.symbol];
     position.symbol = data.symbol;
     position.mark_price = data.mid();
-    revalue(position);
+    revalue(position, instruments_.get(data.symbol).contract_multiplier);
 }
 
 void PositionManager::apply_fill(const Fill& fill) {
-    validate_fill(fill);
+    instruments_.validate_execution(fill);
+    const auto multiplier = instruments_.get(fill.symbol).contract_multiplier;
     auto position = get(fill.symbol);
     const auto delta = fill.side == Side::Buy ? fill.quantity : -fill.quantity;
     const auto old_quantity = position.quantity;
@@ -39,7 +43,7 @@ void PositionManager::apply_fill(const Fill& fill) {
     } else {
         const auto closed = std::min(std::abs(old_quantity), fill.quantity);
         position.realized_pnl += static_cast<double>(closed) *
-            (fill.price - position.average_price) * (old_quantity > 0 ? 1.0 : -1.0);
+            (fill.price - position.average_price) * (old_quantity > 0 ? 1.0 : -1.0) * multiplier;
         if (new_quantity == 0) {
             position.average_price = 0.0;
         } else if ((new_quantity > 0) != (old_quantity > 0)) {
@@ -48,7 +52,7 @@ void PositionManager::apply_fill(const Fill& fill) {
     }
     position.quantity = new_quantity;
     if (position.mark_price == 0.0) { position.mark_price = fill.price; }
-    revalue(position);
+    revalue(position, multiplier);
     positions_[fill.symbol] = position;
 }
 

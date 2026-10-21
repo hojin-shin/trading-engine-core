@@ -1,6 +1,6 @@
 #pragma once
 
-#include "trading/types.hpp"
+#include "trading/instrument_catalog.hpp"
 
 #include <map>
 #include <string>
@@ -9,6 +9,8 @@ namespace trading {
 
 class OrderManager {
 public:
+    OrderManager() = default;
+    explicit OrderManager(InstrumentCatalog instruments);
     OrderId create(Signal request);
     void accept(OrderId id);
     void reject(OrderId id, std::string reason);
@@ -19,6 +21,7 @@ public:
     [[nodiscard]] const std::map<OrderId, Order>& orders() const { return orders_; }
 
 private:
+    InstrumentCatalog instruments_;
     std::map<ExecutionId, Fill> executions_;
     OrderId next_id_{1};
     std::map<OrderId, Order> orders_;

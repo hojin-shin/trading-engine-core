@@ -17,8 +17,8 @@ RiskManager::RiskManager(RiskLimits limits) : limits_(limits) {
 RiskDecision RiskManager::check(const Signal& signal, const MarketData& quote,
                                const PositionManager& positions, const OrderManager& orders) const {
     try {
-        validate_signal(signal);
-        validate_market_data(quote);
+        positions.instruments().validate_order(signal);
+        positions.instruments().validate_quote(quote);
     } catch (const std::invalid_argument& error) {
         return {false, error.what()};
     }
@@ -26,7 +26,9 @@ RiskDecision RiskManager::check(const Signal& signal, const MarketData& quote,
     if (signal.quantity > limits_.max_order_quantity) { return {false, "Order quantity limit"}; }
     const auto price = signal.type == OrderType::Limit ? *signal.limit_price :
                        (signal.side == Side::Buy ? quote.ask : quote.bid);
-    if (price * static_cast<double>(signal.quantity) > limits_.max_order_notional) {
+    const auto notional = price * static_cast<double>(signal.quantity) *
+                          positions.instruments().get(signal.symbol).contract_multiplier;
+    if (!std::isfinite(notional) || notional > limits_.max_order_notional) {
         return {false, "Order notional limit"};
     }
     const auto pnl = positions.total_pnl();
